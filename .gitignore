@@ -53,4 +53,4 @@ local.properties
 .recommenders/
 *.log
 rebel.xml
-.vscode/settings.json
+!/.gitignore

@@ -15,7 +15,10 @@ import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 //import org.springframework.ai.deepseek.DeepSeekAssistantMessage;
 //import org.springframework.ai.deepseek.DeepSeekChatModel;
+import org.springframework.ai.model.tool.DefaultToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaApi;
 import org.springframework.ai.support.ToolCallbacks;
@@ -54,6 +57,58 @@ public class ChatController {
                 .call()
                 .content();
         return response;
+    }
+
+    @PostMapping("/ai/generateTools")
+    public Flux<String> generateTools(@RequestBody RequestData request) {
+        String systemInstruction = "你是个乐于助人的助手，请用中文回答。";
+        String message = request.getMessage();
+        //用户唯一ID
+        String conversationId = request.getConversationId();
+        ToolCallingManager toolCallingManager = DefaultToolCallingManager.builder().build();
+        ChatMemory chatMemory = MessageWindowChatMemory.builder().build();
+
+        ChatOptions chatOptions = ToolCallingChatOptions.builder()
+                .toolCallbacks(ToolCallbacks.from(new DateTimeTools()))
+                .internalToolExecutionEnabled(false)
+                .build();
+        Prompt prompt = new Prompt(
+                List.of(new SystemMessage(systemInstruction), new UserMessage(message)),
+                chatOptions);
+        chatMemory.add(conversationId, prompt.getInstructions());
+
+        Prompt promptWithMemory = new Prompt(chatMemory.get(conversationId), chatOptions);
+        ChatResponse chatResponse = ollamaChatModel.call(promptWithMemory);
+        chatMemory.add(conversationId, chatResponse.getResult().getOutput());
+
+        while (chatResponse.hasToolCalls()) {
+            ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(promptWithMemory,
+                    chatResponse);
+            chatMemory.add(conversationId, toolExecutionResult.conversationHistory()
+                    .get(toolExecutionResult.conversationHistory().size() - 1));
+            promptWithMemory = new Prompt(chatMemory.get(conversationId), chatOptions);
+            chatResponse = ollamaChatModel.call(promptWithMemory);
+            chatMemory.add(conversationId, chatResponse.getResult().getOutput());
+        }
+
+        UserMessage newUserMessage = new UserMessage(message);
+        chatMemory.add(conversationId, newUserMessage);
+
+        Flux<String> flux = ollamaChatModel.stream(new Prompt(chatMemory.get(conversationId)))
+                .map(ChatResponse::getResults)
+                .flatMapIterable(list -> list == null ? Collections.emptyList() : list)
+                .concatMap(result -> {
+                    // 处理普通文本响应
+                    if (result.getOutput() != null && result.getOutput().getText() != null) {
+                        return Flux.just(result.getOutput().getText());
+                    }
+                    return Flux.empty();
+                })
+                .onErrorResume(e -> {
+                    System.out.println("处理请求失败");
+                    return Flux.just("错误: " + e.getMessage());
+                });
+        return flux;
     }
 
     @PostMapping(value = "/ai/generateStream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
