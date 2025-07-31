@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@wonderwhy-er/desktop-commander",
+        "/Users/gang.chen/Desktop",
+        "/Users/gang.chen/Downloads"
+      ]
+    }
+  }
+}

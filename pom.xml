@@ -15,5 +15,7 @@
     </properties>
     <modules>
         <module>spring-ai-client</module>
+        <module>mcp-server</module>
     </modules>
+
 </project>
